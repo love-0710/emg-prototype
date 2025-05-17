@@ -2,8 +2,9 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Html } from "@react-three/drei";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import heartGif from "./heart.gif"; // Place heart.gif in src/
 
 // --- Signal Chart ---
 function SignalChart({ data, label }) {
@@ -21,8 +22,59 @@ function SignalChart({ data, label }) {
   );
 }
 
+// --- Heart on Chest (Animated GIF as Html overlay) ---
+function Heart({ heartRate }) {
+  // Color bar: blue (low), green (normal), red (high)
+  let color = "#2ecc40"; // green
+  if (heartRate < 60) color = "#3498db"; // blue
+  else if (heartRate > 100) color = "#e74c3c"; // red
+
+  // Bar height
+  const barHeight = Math.max(1.2, Math.min(1.2, (heartRate - 40) / 140 + 0.2));
+
+  return (
+    <group>
+      {/* Heart GIF as HTML overlay, sized and centered on the body */}
+      <Html position={[0, 1.0, 0.26]} center>
+        <img
+          src={heartGif}
+          alt="heart"
+          style={{
+            width: "150px",
+            height: "200px",
+            objectFit: "cover",
+            pointerEvents: "none",
+            userSelect: "none",
+            borderRadius: "18px",
+            boxShadow: "0 0 12px #0006",
+            background: "transparent"
+          }}
+        />
+      </Html>
+      {/* Heart rate bar (further right, outside body) */}
+      <mesh position={[1.25, 1.5, 0.28]}>
+        <boxGeometry args={[0.09, barHeight, 0.05]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      {/* Heart rate text */}
+      <Html position={[1.25, 1.5 + barHeight / 2 + 0.14, 0.28]} center>
+        <div style={{
+          color,
+          fontWeight: "bold",
+          fontSize: 18,
+          background: "rgba(255,255,255,0.7)",
+          borderRadius: 6,
+          padding: "1px 4px"
+        }}>
+          {Math.round(heartRate)} bpm
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 // --- Improved HumanModel ---
-function HumanModel({ bodyAction, eyeAction, autoRotate }) {
+function HumanModel({ bodyAction, eyeAction, autoRotate, heartRate }) {
   const group = useRef();
 
   // Animated state for smooth transitions
@@ -77,21 +129,20 @@ function HumanModel({ bodyAction, eyeAction, autoRotate }) {
       break;
   }
 
-  // Animate body parts smoothly
+  // Animate body parts smoothly and slowly
   useEffect(() => {
     const id = setInterval(() => {
-      setLeftArm((v) => v + (target.leftArm - v) * 0.15);
-      setRightArm((v) => v + (target.rightArm - v) * 0.15);
-      setLeftLeg((v) => v + (target.leftLeg - v) * 0.15);
-      setRightLeg((v) => v + (target.rightLeg - v) * 0.15);
-      setHead((v) => v + (target.head - v) * 0.15);
+      setLeftArm((v) => v + (target.leftArm - v) * 0.05);
+      setRightArm((v) => v + (target.rightArm - v) * 0.05);
+      setLeftLeg((v) => v + (target.leftLeg - v) * 0.05);
+      setRightLeg((v) => v + (target.rightLeg - v) * 0.05);
+      setHead((v) => v + (target.head - v) * 0.05);
     }, 30);
     return () => clearInterval(id);
   }, [bodyAction]);
 
   // Eye state
   const [eye, setEye] = useState({ x: 0, y: 0, blink: false });
-  // Target for eye
   let eyeTarget = { x: 0, y: 0, blink: false };
   switch (eyeAction) {
     case "w": eyeTarget = { x: 0, y: 0.22, blink: false }; break;
@@ -101,19 +152,17 @@ function HumanModel({ bodyAction, eyeAction, autoRotate }) {
     case "b": eyeTarget = { x: 0, y: 0, blink: true }; break;
     default: break;
   }
-  // Animate eye smoothly
   useEffect(() => {
     const id = setInterval(() => {
       setEye((e) => ({
-        x: e.x + (eyeTarget.x - e.x) * 0.2,
-        y: e.y + (eyeTarget.y - e.y) * 0.2,
+        x: e.x + (eyeTarget.x - e.x) * 0.05,
+        y: e.y + (eyeTarget.y - e.y) * 0.05,
         blink: eyeTarget.blink
       }));
     }, 30);
     return () => clearInterval(id);
   }, [eyeAction]);
 
-  // Blink timer reset
   useEffect(() => {
     if (!eye.blink) return;
     const timeout = setTimeout(() => setEye((e) => ({ ...e, blink: false })), 400);
@@ -131,6 +180,8 @@ function HumanModel({ bodyAction, eyeAction, autoRotate }) {
         <boxGeometry args={[1, 1.5, 0.5]} />
         <meshStandardMaterial color="#777" />
       </mesh>
+      {/* Heart and heart rate bar */}
+      <Heart heartRate={heartRate} />
       {/* Head */}
       <group position={[0, 2.25, 0]} rotation-y={head}>
         <mesh>
@@ -223,13 +274,28 @@ function generateSignal(label, t) {
   }));
 }
 
-// --- Main App ---
+// --- Smooth ECG Signal Generator ---
+function generateECGSignal(heartRate, t) {
+  const bpm = Math.max(40, Math.min(180, heartRate));
+  // Slower scroll: 0.2s per point, 60 points = 12 seconds window
+  return Array.from({ length: 60 }, (_, i) => ({
+    t: (t + i * 0.2).toFixed(1),
+    value: bpm
+  }));
+}
+
+
+
+// ...imports and SignalChart/Heart/HumanModel unchanged...
+
 export default function App() {
+  // --- State ---
   const [bodyAction, setBodyAction] = useState(null);
   const [eyeAction, setEyeAction] = useState(null);
   const [emgData, setEmgData] = useState(generateSignal("idle", 0));
   const [eogData, setEogData] = useState(generateSignal("idle", 0));
   const [combinedData, setCombinedData] = useState(generateSignal("idle", 0));
+  const [ecgData, setEcgData] = useState(generateECGSignal(72, 0));
   const [emgLabel, setEmgLabel] = useState("idle");
   const [eogLabel, setEogLabel] = useState("idle");
   const [combinedLabel, setCombinedLabel] = useState("idle");
@@ -237,9 +303,56 @@ export default function App() {
   const [emgLastActive, setEmgLastActive] = useState(Date.now());
   const [eogLastActive, setEogLastActive] = useState(Date.now());
   const [combineLastActive, setCombineLastActive] = useState(Date.now());
-  const intervalRef = useRef();
+  const [heartRate, setHeartRate] = useState(72);
 
-  // Key handling
+  // --- Refs for latest state in interval ---
+  const emgLabelRef = useRef(emgLabel);
+  const eogLabelRef = useRef(eogLabel);
+  const combinedLabelRef = useRef(combinedLabel);
+  const bodyActionRef = useRef(bodyAction);
+  const eyeActionRef = useRef(eyeAction);
+  const emgLastActiveRef = useRef(emgLastActive);
+  const eogLastActiveRef = useRef(eogLastActive);
+  const combineLastActiveRef = useRef(combineLastActive);
+  const heartRateRef = useRef(heartRate);
+  const heartRateTarget = useRef(72);
+  const bpmOsc = useRef(0);
+
+  // Keep refs in sync
+  useEffect(() => { emgLabelRef.current = emgLabel; }, [emgLabel]);
+  useEffect(() => { eogLabelRef.current = eogLabel; }, [eogLabel]);
+  useEffect(() => { combinedLabelRef.current = combinedLabel; }, [combinedLabel]);
+  useEffect(() => { bodyActionRef.current = bodyAction; }, [bodyAction]);
+  useEffect(() => { eyeActionRef.current = eyeAction; }, [eyeAction]);
+  useEffect(() => { emgLastActiveRef.current = emgLastActive; }, [emgLastActive]);
+  useEffect(() => { eogLastActiveRef.current = eogLastActive; }, [eogLastActive]);
+  useEffect(() => { combineLastActiveRef.current = combineLastActive; }, [combineLastActive]);
+  useEffect(() => { heartRateRef.current = heartRate; }, [heartRate]);
+
+  // --- Heart rate keyboard control (independent) ---
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === "l") {
+        heartRateTarget.current = Math.max(40, heartRateTarget.current - 2);
+      }
+      if (e.key === "h") {
+        heartRateTarget.current = Math.min(180, heartRateTarget.current + 2);
+      }
+    }
+    function handleKeyUp(e) {
+      if (e.key === "l" || e.key === "h") {
+        heartRateTarget.current = 72;
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  // --- Key handling for EMG/EOG/Combined (unchanged) ---
   useEffect(() => {
     function handleKeyDown(e) {
       let ba = null, ea = null;
@@ -257,12 +370,12 @@ export default function App() {
         case "b": ea = "b"; break;
         default: break;
       }
-      if (ba && ba !== bodyAction) {
+      if (ba && ba !== bodyActionRef.current) {
         setBodyAction(ba);
         setEmgLabel(ba);
         setEmgLastActive(Date.now());
       }
-      if (ea && ea !== eyeAction) {
+      if (ea && ea !== eyeActionRef.current) {
         setEyeAction(ea);
         setEogLabel(
           ea === "w"
@@ -301,30 +414,51 @@ export default function App() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [bodyAction, eyeAction]);
+  }, []);
 
-  // Real-time signal update and auto-reset after 6s of inactivity for each panel
+  // --- Main interval for all signals and heart rate ---
   useEffect(() => {
-    intervalRef.current && clearInterval(intervalRef.current);
     let start = Date.now();
-    intervalRef.current = setInterval(() => {
+    const interval = setInterval(() => {
       let t = ((Date.now() - start) / 1000);
 
+      // Heart rate: idle fluctuation or animate toward target
+      setHeartRate((hr) => {
+        if (heartRateTarget.current === 72) {
+          bpmOsc.current += 0.05;
+          const base = 73.5 + Math.sin(bpmOsc.current) * 1.5; // 72-75
+          return hr + (base - hr) * 0.08;
+        }
+        return hr + (heartRateTarget.current - hr) * 0.08;
+      });
+
       // EMG
-      setEmgData(generateSignal(emgLabel, t));
-      if (emgLabel !== "idle" && !bodyAction && Date.now() - emgLastActive > 6000) {
+      setEmgData(generateSignal(emgLabelRef.current, t));
+      if (
+        emgLabelRef.current !== "idle" &&
+        !bodyActionRef.current &&
+        Date.now() - emgLastActiveRef.current > 6000
+      ) {
         setEmgLabel("idle");
       }
 
       // EOG
-      setEogData(generateSignal(eogLabel, t));
-      if (eogLabel !== "idle" && !eyeAction && Date.now() - eogLastActive > 6000) {
+      setEogData(generateSignal(eogLabelRef.current, t));
+      if (
+        eogLabelRef.current !== "idle" &&
+        !eyeActionRef.current &&
+        Date.now() - eogLastActiveRef.current > 6000
+      ) {
         setEogLabel("idle");
       }
 
-      // Combined: only when both are set and same direction (left/right/up/down)
-      let emgDir = ["left", "right", "up", "down"].includes(emgLabel) ? emgLabel : null;
-      let eogDir = ["left", "right", "up", "down"].includes(eogLabel) ? eogLabel : null;
+      // Combined
+      let emgDir = ["left", "right", "up", "down"].includes(emgLabelRef.current)
+        ? emgLabelRef.current
+        : null;
+      let eogDir = ["left", "right", "up", "down"].includes(eogLabelRef.current)
+        ? eogLabelRef.current
+        : null;
       let combined = "idle";
       if (emgDir && eogDir && emgDir === eogDir) {
         combined = emgDir;
@@ -333,17 +467,20 @@ export default function App() {
       setCombinedLabel(combined);
       setCombinedData(generateSignal(combined, t));
       if (
-        combinedLabel !== "idle" &&
+        combinedLabelRef.current !== "idle" &&
         combined === "idle" &&
-        Date.now() - combineLastActive > 6000
+        Date.now() - combineLastActiveRef.current > 6000
       ) {
         setCombinedLabel("idle");
       }
-    }, 100);
-    return () => clearInterval(intervalRef.current);
-  }, [emgLabel, eogLabel, bodyAction, eyeAction, emgLastActive, eogLastActive, combineLastActive, combinedLabel]);
 
-  // --- UI Layout ---
+      // ECG: always reflect current heartRate
+      setEcgData(generateECGSignal(heartRateRef.current, t));
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- UI Layout (unchanged) ---
   return (
     <div style={{ display: "flex", height: "100vh" }}>
       <div style={{ flex: "0 0 600px", background: "#222", display: "flex", flexDirection: "column" }}>
@@ -351,7 +488,12 @@ export default function App() {
           <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
             <ambientLight intensity={0.6} />
             <directionalLight position={[0, 5, 5]} intensity={0.8} />
-            <HumanModel bodyAction={bodyAction} eyeAction={eyeAction} autoRotate={autoRotate} />
+            <HumanModel
+              bodyAction={bodyAction}
+              eyeAction={eyeAction}
+              autoRotate={autoRotate}
+              heartRate={heartRate}
+            />
             <OrbitControls enablePan={false} enableZoom={false} enableRotate={true} autoRotate={autoRotate} autoRotateSpeed={0.5} />
           </Canvas>
         </div>
@@ -372,10 +514,15 @@ export default function App() {
         </button>
       </div>
       <div style={{ flex: "1", padding: 20, background: "#eee", display: "flex", flexDirection: "column" }}>
-        {/* Top row: EMG and EOG */}
+        {/* Top row: EMG, EOG, ECG */}
         <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
           <SignalChart data={emgData} label={`EMG: ${emgLabel}`} />
           <SignalChart data={eogData} label={`EOG: ${eogLabel}`} />
+          <SignalChart
+            data={ecgData}
+            label={`ECG: ${Math.round(heartRate)} bpm`}
+            yDomain={[40, 180]} // pass this prop only for ECG
+          />
         </div>
         {/* Bottom row: Combined */}
         <div style={{ display: "flex", justifyContent: "center", marginTop: 30 }}>
@@ -398,14 +545,16 @@ export default function App() {
             <b>Eye Movement (EOG):</b> <code>w</code> (up), <code>s</code> (down), <code>a</code> (left), <code>d</code> (right), <code>b</code> (blink)
           </p>
           <p>
+            <b>Heart Rate (ECG):</b> <code>l</code> (lower), <code>h</code> (higher). Hold to change, release to return to normal.
+          </p>
+          <p>
             <b>Combined:</b> Only shows when both body and eye are the same direction (left/right/up/down).
           </p>
           <p>
-            Hold a key to see continuous movement and EMG/EOG signal waveform. Release or wait 10 seconds to reset.
+            Hold a key to see continuous movement and EMG/EOG signal waveform. Release or wait 6 seconds to reset.
           </p>
         </div>
       </div>
     </div>
   );
 }
-
